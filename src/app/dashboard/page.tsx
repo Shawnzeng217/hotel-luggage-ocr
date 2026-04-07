@@ -31,6 +31,12 @@ export default function DashboardPage() {
   }
 
   const markCollected = async (id: string) => {
+    const record = records.find(r => r.id === id)
+    const confirmed = window.confirm(
+      `Confirm collection?\n\nRoom ${record?.room_number} · ${record?.guest_name}\n${record?.item_count} item(s)\n\nThis cannot be undone.`
+    )
+    if (!confirmed) return
+
     await supabase
       .from('luggage_records')
       .update({ status: 'collected', collected_at: new Date().toISOString() })
@@ -38,6 +44,14 @@ export default function DashboardPage() {
 
     loadRecords()
   }
+
+  const [search, setSearch] = useState('')
+
+  const filtered = records.filter(r => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    return r.guest_name.toLowerCase().includes(q) || r.room_number.toLowerCase().includes(q)
+  })
 
   const storedCount = records.filter(r => r.status === 'stored').length
   const collectedCount = records.filter(r => r.status === 'collected').length
@@ -84,18 +98,35 @@ export default function DashboardPage() {
           New Luggage Check-in
         </button>
 
+        {/* Search */}
+        <div className="relative">
+          <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#002F61]/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by room number or guest name..."
+            className="w-full pl-11 pr-4 py-3 rounded-2xl border border-[#002F61]/10 bg-white/80 text-[#002F61] placeholder:text-[#002F61]/30 focus:outline-none focus:ring-2 focus:ring-[#007293] transition"
+          />
+        </div>
+
         {/* Records List */}
         <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-[#002F61]">Recent Records</h2>
+          <h2 className="text-lg font-semibold text-[#002F61]">
+            {search ? `Results for "${search}"` : 'Recent Records'}
+            {!loading && <span className="text-sm font-normal text-[#002F61]/40 ml-2">({filtered.length})</span>}
+          </h2>
 
           {loading ? (
             <div className="glass-card p-8 text-center text-[#002F61]/50">Loading...</div>
-          ) : records.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="glass-card p-8 text-center text-[#002F61]/50">
-              No luggage records yet. Create your first check-in.
+              {search ? `No records matching "${search}"` : 'No luggage records yet. Create your first check-in.'}
             </div>
           ) : (
-            records.map((record) => (
+            filtered.map((record) => (
               <div key={record.id} className="glass-card p-4 sm:p-5">
                 <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
                   <div className="space-y-1">

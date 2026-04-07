@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { v4 as uuidv4 } from 'uuid'
@@ -18,6 +18,7 @@ export default function NewCheckInPage() {
   const [photos, setPhotos] = useState<File[]>([])
   const [signatureData, setSignatureData] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
 
   const router = useRouter()
   const supabase = createClient()
@@ -26,6 +27,13 @@ export default function NewCheckInPage() {
     () => photos.map((f) => URL.createObjectURL(f)),
     [photos]
   )
+
+  // Cleanup object URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [previewUrls])
 
   const handlePhotoCapture = (newFiles: File[]) => {
     setPhotos((prev) => [...prev, ...newFiles])
@@ -80,7 +88,9 @@ export default function NewCheckInPage() {
       if (recordError) throw recordError
 
       // Upload photos
+      const failedUploads: number[] = []
       for (let i = 0; i < photos.length; i++) {
+        setUploadProgress(`Uploading photo ${i + 1} of ${photos.length}...`)
         const file = photos[i]
         const ext = file.name.split('.').pop() || 'jpg'
         const photoPath = `${voucherToken}/photo_${i}.${ext}`
@@ -89,22 +99,31 @@ export default function NewCheckInPage() {
           .from('luggage-photos')
           .upload(photoPath, file, { contentType: file.type })
 
-        if (!uploadError) {
-          const { data: urlData } = supabase.storage
-            .from('luggage-photos')
-            .getPublicUrl(photoPath)
-
-          await supabase.from('luggage_photos').insert({
-            record_id: record.id,
-            photo_url: urlData.publicUrl,
-          })
+        if (uploadError) {
+          failedUploads.push(i + 1)
+          continue
         }
+
+        const { data: urlData } = supabase.storage
+          .from('luggage-photos')
+          .getPublicUrl(photoPath)
+
+        await supabase.from('luggage_photos').insert({
+          record_id: record.id,
+          photo_url: urlData.publicUrl,
+        })
       }
 
+      if (failedUploads.length > 0) {
+        alert(`Warning: Photo(s) #${failedUploads.join(', ')} failed to upload. The record was created but some photos are missing.`)
+      }
+
+      setUploadProgress('')
       router.push(`/dashboard/success/${voucherToken}`)
     } catch (err) {
       console.error('Submit error:', err)
       alert('Failed to create record. Please try again.')
+      setUploadProgress('')
       setSubmitting(false)
     }
   }
@@ -349,6 +368,18 @@ export default function NewCheckInPage() {
               >
                 {submitting ? 'Creating...' : 'Confirm Check-in ✓'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Full-screen upload progress overlay */}
+        {submitting && (
+          <div className="fixed inset-0 z-50 bg-[#002F61]/60 flex items-center justify-center px-6">
+            <div className="glass-card p-8 w-full max-w-sm text-center space-y-4">
+              <div className="w-12 h-12 border-3 border-[#007293] border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-lg font-semibold text-[#002F61]">Creating Record...</p>
+              <p className="text-sm text-[#002F61]/60">{uploadProgress || 'Preparing...'}</p>
+              <p className="text-xs text-[#002F61]/40">Please do not close this page</p>
             </div>
           </div>
         )}
