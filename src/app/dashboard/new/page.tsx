@@ -5,18 +5,21 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { v4 as uuidv4 } from 'uuid'
 import PhotoCapture from '@/components/PhotoCapture'
-import SignaturePad from '@/components/SignaturePad'
+import LuggageTagScan from '@/components/LuggageTagScan'
 
-type Step = 'info' | 'photos' | 'signature' | 'confirm'
+type Step = 'scan' | 'info' | 'photos' | 'confirm'
+const STEPS: Step[] = ['scan', 'info', 'photos', 'confirm']
 
 export default function NewCheckInPage() {
-  const [step, setStep] = useState<Step>('info')
-  const [guestName, setGuestName] = useState('')
+  const [step, setStep] = useState<Step>('scan')
+  const [ocrUsed, setOcrUsed] = useState(false)
+  const [tagImageUrl, setTagImageUrl] = useState<string | null>(null)
   const [roomNumber, setRoomNumber] = useState('')
+  const [guestName, setGuestName] = useState('')
   const [itemCount, setItemCount] = useState(1)
+  const [phone, setPhone] = useState('')
   const [notes, setNotes] = useState('')
   const [photos, setPhotos] = useState<File[]>([])
-  const [signatureData, setSignatureData] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [uploadProgress, setUploadProgress] = useState('')
 
@@ -28,7 +31,6 @@ export default function NewCheckInPage() {
     [photos]
   )
 
-  // Cleanup object URLs to prevent memory leaks
   useEffect(() => {
     return () => {
       previewUrls.forEach((url) => URL.revokeObjectURL(url))
@@ -43,6 +45,8 @@ export default function NewCheckInPage() {
     setPhotos((prev) => prev.filter((_, i) => i !== index))
   }
 
+  const stepIndex = STEPS.indexOf(step)
+
   const handleSubmit = async () => {
     setSubmitting(true)
 
@@ -52,31 +56,34 @@ export default function NewCheckInPage() {
 
       const voucherToken = uuidv4()
 
-      // Upload signature
+      // Upload tag image as signature proof (if scanned)
       let signatureUrl: string | null = null
-      if (signatureData) {
-        const signatureBlob = await fetch(signatureData).then(r => r.blob())
-        const signaturePath = `${voucherToken}/signature.png`
-        const { error: sigError } = await supabase.storage
+      if (tagImageUrl) {
+        setUploadProgress('Uploading tag image...')
+        const tagBlob = await fetch(tagImageUrl).then(r => r.blob())
+        const tagPath = `${voucherToken}/tag.jpg`
+        const { error: tagError } = await supabase.storage
           .from('signatures')
-          .upload(signaturePath, signatureBlob, { contentType: 'image/png' })
+          .upload(tagPath, tagBlob, { contentType: 'image/jpeg' })
 
-        if (!sigError) {
+        if (!tagError) {
           const { data: urlData } = supabase.storage
             .from('signatures')
-            .getPublicUrl(signaturePath)
+            .getPublicUrl(tagPath)
           signatureUrl = urlData.publicUrl
         }
       }
 
       // Insert luggage record
+      setUploadProgress('Creating record...')
       const { data: record, error: recordError } = await supabase
         .from('luggage_records')
         .insert({
           voucher_token: voucherToken,
-          guest_name: guestName,
+          guest_name: guestName || '',
           room_number: roomNumber,
           item_count: itemCount,
+          phone: phone || null,
           notes: notes || null,
           signature_url: signatureUrl,
           status: 'stored',
@@ -115,7 +122,7 @@ export default function NewCheckInPage() {
       }
 
       if (failedUploads.length > 0) {
-        alert(`Warning: Photo(s) #${failedUploads.join(', ')} failed to upload. The record was created but some photos are missing.`)
+        alert(`Warning: Photo(s) #${failedUploads.join(', ')} failed to upload.`)
       }
 
       setUploadProgress('')
@@ -139,9 +146,9 @@ export default function NewCheckInPage() {
             </svg>
           </button>
           <div>
-            <h1 className="text-lg font-bold">New Check-in</h1>
+            <h1 className="text-lg font-bold">New Check-in / 新寄存</h1>
             <p className="text-white/60 text-xs">
-              Step {step === 'info' ? '1' : step === 'photos' ? '2' : step === 'signature' ? '3' : '4'} of 4
+              Step {stepIndex + 1} of {STEPS.length}
             </p>
           </div>
         </div>
@@ -150,24 +157,64 @@ export default function NewCheckInPage() {
       {/* Progress Bar */}
       <div className="max-w-lg mx-auto px-4 pt-4">
         <div className="flex gap-1">
-          {(['info', 'photos', 'signature', 'confirm'] as Step[]).map((s, i) => (
+          {STEPS.map((s, i) => (
             <div key={s} className={`h-1 flex-1 rounded-full transition ${
-              i <= ['info', 'photos', 'signature', 'confirm'].indexOf(step)
-                ? 'bg-[#007293]'
-                : 'bg-[#002F61]/10'
+              i <= stepIndex ? 'bg-[#007293]' : 'bg-[#002F61]/10'
             }`} />
           ))}
         </div>
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-6">
-        {/* Step 1: Guest Info */}
+
+        {/* ========== Step 1: Scan Luggage Tag ========== */}
+        {step === 'scan' && (
+          <div className="glass-card p-6 space-y-5">
+            <h2 className="text-lg font-semibold text-[#002F61]">
+              Scan Luggage Tag / 扫描行李卡
+            </h2>
+            <p className="text-sm text-[#002F61]/60">
+              Take a photo of the luggage tag to auto-extract info, or skip to enter manually.
+            </p>
+            <p className="text-xs text-[#002F61]/40">
+              拍摄行李卡照片自动提取信息，或跳过手动输入。
+            </p>
+
+            <LuggageTagScan
+              onResult={(result) => {
+                setRoomNumber(result.room_number || '')
+                setGuestName(result.guest_name || '')
+                setItemCount(result.item_count || 1)
+                setPhone(result.phone || '')
+                setTagImageUrl(result.tag_image_url || null)
+                setOcrUsed(true)
+                setStep('info')
+              }}
+              onSkip={() => setStep('info')}
+            />
+          </div>
+        )}
+
+        {/* ========== Step 2: Confirm / Edit Info ========== */}
         {step === 'info' && (
           <div className="glass-card p-6 space-y-5">
-            <h2 className="text-lg font-semibold text-[#002F61]">Guest Information</h2>
+            <h2 className="text-lg font-semibold text-[#002F61]">
+              Guest Information / 客人信息
+            </h2>
+            {ocrUsed && (
+              <div className="bg-green-50 text-green-700 text-sm p-3 rounded-xl flex items-center gap-2">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+                Auto-filled from tag — please verify / 已自动识别，请核实
+              </div>
+            )}
 
+            {/* Room Number */}
             <div>
-              <label className="block text-sm font-medium text-[#002F61] mb-1.5">Room Number</label>
+              <label className="block text-sm font-medium text-[#002F61] mb-1.5">
+                Room Number / 房间号 <span className="text-red-400">*</span>
+              </label>
               <input
                 type="text"
                 value={roomNumber}
@@ -177,19 +224,25 @@ export default function NewCheckInPage() {
               />
             </div>
 
+            {/* Guest Name */}
             <div>
-              <label className="block text-sm font-medium text-[#002F61] mb-1.5">Guest Name</label>
+              <label className="block text-sm font-medium text-[#002F61] mb-1.5">
+                Guest Name / 客人姓名
+              </label>
               <input
                 type="text"
                 value={guestName}
                 onChange={(e) => setGuestName(e.target.value)}
-                placeholder="e.g. John Smith"
+                placeholder="e.g. John Smith (optional)"
                 className="w-full px-4 py-3 rounded-xl border border-[#002F61]/10 bg-white/80 text-[#002F61] placeholder:text-[#002F61]/30 focus:outline-none focus:ring-2 focus:ring-[#007293] transition"
               />
             </div>
 
+            {/* Item Count */}
             <div>
-              <label className="block text-sm font-medium text-[#002F61] mb-1.5">Number of Items</label>
+              <label className="block text-sm font-medium text-[#002F61] mb-1.5">
+                Number of Items / 行李数量 <span className="text-red-400">*</span>
+              </label>
               <div className="flex items-center gap-4">
                 <button
                   type="button"
@@ -209,31 +262,58 @@ export default function NewCheckInPage() {
               </div>
             </div>
 
+            {/* Phone */}
             <div>
-              <label className="block text-sm font-medium text-[#002F61] mb-1.5">Notes (optional)</label>
+              <label className="block text-sm font-medium text-[#002F61] mb-1.5">
+                Phone / 电话
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="e.g. 13800138000"
+                className="w-full px-4 py-3 rounded-xl border border-[#002F61]/10 bg-white/80 text-[#002F61] placeholder:text-[#002F61]/30 focus:outline-none focus:ring-2 focus:ring-[#007293] transition"
+              />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium text-[#002F61] mb-1.5">
+                Notes / 备注
+              </label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. Scratch on left side of red suitcase"
-                rows={3}
+                placeholder="e.g. Red suitcase, fragile / 红色行李箱，易碎"
+                rows={2}
                 className="w-full px-4 py-3 rounded-xl border border-[#002F61]/10 bg-white/80 text-[#002F61] placeholder:text-[#002F61]/30 focus:outline-none focus:ring-2 focus:ring-[#007293] transition resize-none"
               />
             </div>
 
-            <button
-              onClick={() => setStep('photos')}
-              disabled={!guestName || !roomNumber}
-              className="w-full py-3 bg-[#007293] text-white font-medium rounded-xl hover:bg-[#007293]/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next: Take Photos →
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep('scan')}
+                className="flex-1 py-3 border border-[#002F61]/20 text-[#002F61] font-medium rounded-xl hover:bg-[#002F61]/5 transition"
+              >
+                ← Back
+              </button>
+              <button
+                onClick={() => setStep('photos')}
+                disabled={!roomNumber}
+                className="flex-1 py-3 bg-[#007293] text-white font-medium rounded-xl hover:bg-[#007293]/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next: Photos →
+              </button>
+            </div>
           </div>
         )}
 
-        {/* Step 2: Photos */}
+        {/* ========== Step 3: Photos ========== */}
         {step === 'photos' && (
           <div className="glass-card p-6 space-y-5">
-            <h2 className="text-lg font-semibold text-[#002F61]">Luggage Photos</h2>
+            <h2 className="text-lg font-semibold text-[#002F61]">
+              Luggage Photos / 行李拍照
+            </h2>
             <p className="text-sm text-[#002F61]/60">
               Take photos of each luggage item for the record.
             </p>
@@ -253,90 +333,60 @@ export default function NewCheckInPage() {
                 ← Back
               </button>
               <button
-                onClick={() => setStep('signature')}
+                onClick={() => setStep('confirm')}
                 disabled={photos.length === 0}
                 className="flex-1 py-3 bg-[#007293] text-white font-medium rounded-xl hover:bg-[#007293]/90 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Next: Signature →
+                Next: Confirm →
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Signature */}
-        {step === 'signature' && (
-          <div className="space-y-5">
-            {/* Confirmation message */}
-            <div className="glass-card p-6">
-              <h2 className="text-lg font-semibold text-[#002F61] mb-3">Guest Confirmation</h2>
-              <div className="bg-[#002F61]/5 rounded-xl p-4 text-sm text-[#002F61]">
-                <p className="font-medium mb-2">Please confirm:</p>
-                <p>
-                  I, <strong>{guestName}</strong>, confirm the storage of{' '}
-                  <strong>{itemCount} item{itemCount > 1 ? 's' : ''}</strong> from
-                  Room <strong>{roomNumber}</strong>. I acknowledge that the photos taken
-                  accurately represent the current condition of my luggage.
-                </p>
-              </div>
-            </div>
-
-            {/* Signature area - designed for handing device to guest */}
-            <div className="glass-card p-6">
-              <div className="text-center mb-4">
-                <p className="text-[#007293] font-medium text-lg">✍️ Please Sign Below</p>
-                <p className="text-sm text-[#002F61]/50">Hand device to guest for signature</p>
-              </div>
-
-              <SignaturePad
-                onSave={(data) => {
-                  setSignatureData(data)
-                  setStep('confirm')
-                }}
-                onClear={() => setSignatureData(null)}
-              />
-            </div>
-
-            <button
-              onClick={() => setStep('photos')}
-              className="w-full py-3 border border-[#002F61]/20 text-[#002F61] font-medium rounded-xl hover:bg-[#002F61]/5 transition"
-            >
-              ← Back
-            </button>
-          </div>
-        )}
-
-        {/* Step 4: Confirm & Submit */}
+        {/* ========== Step 4: Confirm & Submit ========== */}
         {step === 'confirm' && (
           <div className="glass-card p-6 space-y-5">
-            <h2 className="text-lg font-semibold text-[#002F61]">Review & Submit</h2>
+            <h2 className="text-lg font-semibold text-[#002F61]">
+              Review & Submit / 确认提交
+            </h2>
 
             <div className="space-y-3 text-sm">
               <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                <span className="text-[#002F61]/60">Guest</span>
-                <span className="font-medium text-[#002F61]">{guestName}</span>
-              </div>
-              <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                <span className="text-[#002F61]/60">Room</span>
+                <span className="text-[#002F61]/60">Room / 房间</span>
                 <span className="font-medium text-[#002F61]">{roomNumber}</span>
               </div>
+              {guestName && (
+                <div className="flex justify-between py-2 border-b border-[#002F61]/10">
+                  <span className="text-[#002F61]/60">Guest / 客人</span>
+                  <span className="font-medium text-[#002F61]">{guestName}</span>
+                </div>
+              )}
               <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                <span className="text-[#002F61]/60">Items</span>
+                <span className="text-[#002F61]/60">Items / 件数</span>
                 <span className="font-medium text-[#002F61]">{itemCount}</span>
               </div>
+              {phone && (
+                <div className="flex justify-between py-2 border-b border-[#002F61]/10">
+                  <span className="text-[#002F61]/60">Phone / 电话</span>
+                  <span className="font-medium text-[#002F61]">{phone}</span>
+                </div>
+              )}
               <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                <span className="text-[#002F61]/60">Photos</span>
+                <span className="text-[#002F61]/60">Photos / 照片</span>
                 <span className="font-medium text-[#002F61]">{photos.length} taken</span>
               </div>
               {notes && (
                 <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                  <span className="text-[#002F61]/60">Notes</span>
+                  <span className="text-[#002F61]/60">Notes / 备注</span>
                   <span className="font-medium text-[#002F61] text-right max-w-[60%]">{notes}</span>
                 </div>
               )}
-              <div className="flex justify-between py-2 border-b border-[#002F61]/10">
-                <span className="text-[#002F61]/60">Signature</span>
-                <span className="font-medium text-green-600">✓ Captured</span>
-              </div>
+              {tagImageUrl && (
+                <div className="flex justify-between py-2 border-b border-[#002F61]/10">
+                  <span className="text-[#002F61]/60">Tag scanned / 行李卡</span>
+                  <span className="font-medium text-green-600">✓ Captured</span>
+                </div>
+              )}
             </div>
 
             {/* Photo thumbnails */}
@@ -347,16 +397,17 @@ export default function NewCheckInPage() {
               ))}
             </div>
 
-            {/* Signature preview */}
-            {signatureData && (
+            {/* Tag image preview */}
+            {tagImageUrl && (
               <div className="border border-[#002F61]/10 rounded-xl p-2 bg-white">
-                <img src={signatureData} alt="Signature" className="h-16 mx-auto" />
+                <p className="text-xs text-[#002F61]/40 mb-1 text-center">Luggage Tag / 行李卡</p>
+                <img src={tagImageUrl} alt="Luggage tag" className="h-24 mx-auto object-contain" />
               </div>
             )}
 
             <div className="flex gap-3">
               <button
-                onClick={() => setStep('signature')}
+                onClick={() => setStep('photos')}
                 className="flex-1 py-3 border border-[#002F61]/20 text-[#002F61] font-medium rounded-xl hover:bg-[#002F61]/5 transition"
               >
                 ← Back
@@ -372,7 +423,7 @@ export default function NewCheckInPage() {
           </div>
         )}
 
-        {/* Full-screen upload progress overlay */}
+        {/* Upload progress overlay */}
         {submitting && (
           <div className="fixed inset-0 z-50 bg-[#002F61]/60 flex items-center justify-center px-6">
             <div className="glass-card p-8 w-full max-w-sm text-center space-y-4">

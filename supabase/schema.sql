@@ -7,9 +7,10 @@
 CREATE TABLE luggage_records (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   voucher_token UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-  guest_name TEXT NOT NULL,
+  guest_name TEXT DEFAULT '',
   room_number TEXT NOT NULL,
   item_count INTEGER NOT NULL DEFAULT 1,
+  phone TEXT,
   notes TEXT,
   signature_url TEXT,
   status TEXT NOT NULL DEFAULT 'stored' CHECK (status IN ('stored', 'collected')),
@@ -65,6 +66,7 @@ RETURNS TABLE (
   guest_name TEXT,
   room_number TEXT,
   item_count INTEGER,
+  phone TEXT,
   notes TEXT,
   signature_url TEXT,
   status TEXT,
@@ -72,7 +74,7 @@ RETURNS TABLE (
   collected_at TIMESTAMPTZ
 ) AS $$
   SELECT r.id, r.voucher_token, r.guest_name, r.room_number, r.item_count,
-         r.notes, r.signature_url, r.status, r.created_at, r.collected_at
+         r.phone, r.notes, r.signature_url, r.status, r.created_at, r.collected_at
   FROM luggage_records r
   WHERE r.voucher_token = p_token;
 $$ LANGUAGE sql SECURITY DEFINER;

@@ -11,6 +11,7 @@ export default function RecordDetailPage() {
   const [record, setRecord] = useState<LuggageRecord | null>(null)
   const [photos, setPhotos] = useState<LuggagePhoto[]>([])
   const [loading, setLoading] = useState(true)
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -80,6 +81,12 @@ export default function RecordDetailPage() {
               <span className="text-[#002F61]/60">Items</span>
               <span className="font-medium text-[#002F61]">{record.item_count}</span>
             </div>
+            {record.phone && (
+              <div className="flex justify-between py-2 border-b border-[#002F61]/10">
+                <span className="text-[#002F61]/60">Phone</span>
+                <span className="font-medium text-[#002F61]">{record.phone}</span>
+              </div>
+            )}
             <div className="flex justify-between py-2 border-b border-[#002F61]/10">
               <span className="text-[#002F61]/60">Checked in</span>
               <span className="font-medium text-[#002F61]">{new Date(record.created_at).toLocaleString()}</span>
@@ -109,7 +116,8 @@ export default function RecordDetailPage() {
                   key={photo.id}
                   src={photo.photo_url}
                   alt="Luggage"
-                  className="w-full h-40 object-cover rounded-xl border border-[#002F61]/10"
+                  className="w-full h-40 object-cover rounded-xl border border-[#002F61]/10 cursor-pointer active:opacity-70 transition-opacity"
+                  onClick={() => setLightboxUrl(photo.photo_url)}
                 />
               ))}
             </div>
@@ -120,12 +128,27 @@ export default function RecordDetailPage() {
         {record.signature_url && (
           <div className="glass-card p-6 space-y-3">
             <h3 className="font-semibold text-[#002F61]">Guest Signature</h3>
-            <div className="bg-white rounded-xl p-3 border border-[#002F61]/10">
+            <div className="bg-white rounded-xl p-3 border border-[#002F61]/10 cursor-pointer active:opacity-70 transition-opacity" onClick={() => setLightboxUrl(record.signature_url!)}>
               <img src={record.signature_url} alt="Signature" className="h-20 mx-auto" />
             </div>
           </div>
         )}
       </div>
+
+      {/* Lightbox */}
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img
+            src={lightboxUrl}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

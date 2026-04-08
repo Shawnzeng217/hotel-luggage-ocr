@@ -11,6 +11,7 @@ interface VoucherRecord {
   guest_name: string
   room_number: string
   item_count: number
+  phone: string | null
   notes: string | null
   signature_url: string | null
   status: string
@@ -116,6 +117,12 @@ export default function VoucherPage() {
               <span className="text-[#002F61]/60">Items</span>
               <span className="font-medium text-[#002F61]">{record.item_count} item{record.item_count > 1 ? 's' : ''}</span>
             </div>
+            {record.phone && (
+              <div className="flex justify-between py-2 border-b border-[#002F61]/10">
+                <span className="text-[#002F61]/60">Phone</span>
+                <span className="font-medium text-[#002F61]">{record.phone}</span>
+              </div>
+            )}
             <div className="flex justify-between py-2 border-b border-[#002F61]/10">
               <span className="text-[#002F61]/60">Stored at</span>
               <span className="font-medium text-[#002F61]">{new Date(record.created_at).toLocaleString()}</span>

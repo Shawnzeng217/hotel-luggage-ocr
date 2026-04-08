@@ -4,6 +4,7 @@ export interface LuggageRecord {
   guest_name: string
   room_number: string
   item_count: number
+  phone: string | null
   notes: string | null
   signature_url: string | null
   status: 'stored' | 'collected'
