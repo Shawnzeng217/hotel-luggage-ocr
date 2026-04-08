@@ -31,9 +31,15 @@ function parseLuggageTag(text: string): OcrResult {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
 
   for (const line of lines) {
-    // Guest name: 姓名 / 客人 / Name / Guest
+    // Skip staff signature lines (办理人签名) — not useful data
+    if (/(?:办理人|staff|员工|前台)\s*(?:签名|signature)/i.test(line)) continue
+
+    // Guest name: extract from 客人签名 / 姓名 / Guest Name
     if (!result.guest_name) {
-      let match = line.match(/(?:guest\s*(?:name)?|name|姓名|客人|旅客)\s*[:\s：]*\s*(.+)/i)
+      // "客人签名：张三" → guest name is "张三"
+      let match = line.match(/(?:客人签名|guest\s*signature)\s*[:\s：]*\s*(.+)/i)
+      if (match) { result.guest_name = match[1].trim().replace(/[|│\s]+$/, ''); continue }
+      match = line.match(/(?:guest\s*name|姓名|客人姓名)\s*[:\s：]*\s*(.+)/i)
       if (match) { result.guest_name = match[1].trim().replace(/[|│\s]+$/, ''); continue }
       match = line.match(/^((?:Mr|Mrs|Ms|Miss|Dr)\.?\s+.+)/i)
       if (match) { result.guest_name = match[1].trim(); continue }
